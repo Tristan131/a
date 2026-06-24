@@ -98,21 +98,27 @@ def start_background_server():
 if __name__ == "__main__":
     multiprocessing.freeze_support()
 
+    # Start de nep-server voor Render
+    start_background_server()
+
     # Zorg dat er automatisch een proxy-bestand wordt aangemaakt als die er niet is
     if not os.path.exists('proxies.txt'):
         get_content_from_sources()
 
-    # Hier passen we de instellingen aan voor Render (laag geheugenverbruik)
+    # Instellingen voor Render (laag geheugenverbruik)
     sys.argv = [
         sys.argv[0], 
-        "--workers", "1",      # Maximaal 1 proces (bespaart enorm veel RAM)
-        "--threads", "4",      # 4 lichte threads binnen dat proces
+        "--workers", "1",      
+        "--threads", "4",      
         "--proxy-file", "proxies.txt",
-        "--chunk-size", "50"   # Kleinere batches sturen per keer
+        "--chunk-size", "50"   
     ]
 
     args = parse_args()
     try:
         Controller(args)
+        # Zorg dat het hoofdproces niet stopt na het opstarten van de controller
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
         pass

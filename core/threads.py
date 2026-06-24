@@ -1,69 +1,57 @@
 import time
 import requests
 from queue import Empty
-from .detection import check_group, check_games, groupimage  
-from .utils import make_http_socket, parse_batch_response, json_dumps
 
 def stat_updater(count_queue):
-    """Keeping track of the number of groups scanned per second."""
+    """Bijhouden van statistieken."""
     total_scanned = 0
     start_time = time.time()
     
     while True:
         try:
-            chunks = count_queue.get()
-            for ts, count in chunks:
-                total_scanned += count
+            # Haal data uit de queue zonder te blokkeren
+            try:
+                chunks = count_queue.get(timeout=1)
+                for ts, count in chunks:
+                    total_scanned += count
+            except Empty:
+                pass
             
             elapsed = time.time() - start_time
-            if elapsed >= 10:  # Elke 10 seconden een update
-                speed = total_scanned / elapsed
-                print(f"[ STATS ] Totaal gescand: {total_scanned} | Snelheid: {speed:.2f} groepen/sec")
-                total_scanned = 0
+            if elapsed >= 10:
+                speed = total_scanned / elapsed if elapsed > 0 else 0
+                print(f"[ STATS ] Snelheid: {speed:.2f} groepen/sec")
                 start_time = time.time()
         except Exception as e:
             print(f"[ STATS ERROR ] {e}")
         time.sleep(1)
 
 def log_notifier(log_queue, webhook_url):
-    """Stuurt gevonden groepen door naar je Discord/Guilded Webhook."""
+    """Stuurt hits naar Discord/Guilded."""
     while True:
         try:
-            # Wacht op een succesvolle vondst uit de queue
-            group_info = log_queue.get()
-            print(f"[ HIT! ] Groep gevonden: {group_info.get('id')} - {group_info.get('name')}")
+            group_info = log_queue.get(timeout=1)
+            print(f"[ HIT! ] Groep gevonden: {group_info}")
             
             if webhook_url:
-                # Maak een mooie Discord embed
                 payload = {
-                    "embeds": [{
-                        "title": f"🎉 Groep Zonder Eigenaar Gevonden!",
-                        "url": f"https://www.roblox.com/groups/{group_info.get('id')}",
-                        "color": 3066993,  # Groen
-                        "fields": [
-                            {"name": "Groep ID", "value": str(group_info.get('id')), "inline": True},
-                            {"name": "Naam", "value": group_info.get('name'), "inline": True},
-                            {"name": "Leden", "value": str(group_info.get('memberCount', 0)), "inline": True}
-                        ],
-                        "footer": {"text": "Ambatokam Finder"}
-                    }]
+                    "content": f"🎉 **Groep Zonder Eigenaar Gevonden!**\nhttps://www.roblox.com/groups/{group_info}"
                 }
-                
-                # Stuur naar de webhook
                 requests.post(webhook_url, json=payload, timeout=5)
+        except Empty:
+            pass
         except Exception as e:
             print(f"[ WEBHOOK ERROR ] {e}")
         time.sleep(0.5)
 
 def group_scanner(log_queue, count_queue, proxy_iter, gid_ranges, gid_cutoff, gid_chunk_size, timeout=5):
-    """De scanner die door de ID-ranges loopt en groepen controleert."""
-    print("[ SCANNER ] Thread gestart...")
+    """De hoofd-scanner thread."""
+    print("[ SCANNER ] Thread succesvol opgestart!")
     
     for start_id, end_id in gid_ranges:
         current_id = start_id
         while current_id <= end_id:
             chunk = []
-            # Bouw een batch van IDs om in één keer te checken (sneller!)
             for i in range(gid_chunk_size):
                 if current_id + i <= end_id:
                     chunk.append(current_id + i)
@@ -72,40 +60,36 @@ def group_scanner(log_queue, count_queue, proxy_iter, gid_ranges, gid_cutoff, gi
                 break
                 
             try:
-                # Pak de volgende proxy uit de lijst
                 auth, proxy_addr = next(proxy_iter)
                 
-                # Maak een snelle HTTP verbinding via een socket
-                # We vragen de groepsdetails op bij de Roblox API
-                headers = {"User-Agent": "Roblox/WinInet", "Content-Type": "application/json"}
+                # Simpel batch-verzoek naar Roblox API via proxy
                 ids_str = ",".join(map(str, chunk))
                 url = f"https://groups.roblox.com/v1/groups?groupIds={ids_str}"
                 
-                # Stuur het verzoek via de proxy
-                response = requests.get(url, headers=headers, timeout=timeout, proxies={
+                proxies = {
                     "http": f"http://{proxy_addr[0]}:{proxy_addr[1]}",
                     "https": f"http://{proxy_addr[0]}:{proxy_addr[1]}"
-                })
+                }
+                
+                response = requests.get(url, timeout=timeout, proxies=proxies)
                 
                 if response.status_code == 200:
                     data = response.json()
                     found_groups = data.get("data", [])
                     
-                    # Log het aantal gescande groepen voor stat_updater
-                    count_queue.put((time.time(), len(chunk)))
+                    # Geef door hoeveel we er gescand hebben
+                    count_queue.put([(time.time(), len(chunk))])
                     
                     for group in found_groups:
-                        # Als 'owner' leeg (null) is, is de groep claimbaar!
+                        # Als er geen eigenaar is, sturen we het groeps-ID door!
                         if group.get("owner") is None:
-                            # Stuur de hit naar de log_notifier queue
-                            log_queue.put(group)
+                            log_queue.put(group.get("id"))
                             
                 elif response.status_code == 429:
-                    # Rate limit, even rustig aan met deze proxy
-                    time.sleep(1)
+                    time.sleep(2)
                     
             except Exception:
-                # Proxy error of time-out, ga gewoon door naar de volgende proxy
+                # Bij een proxy-fout gaan we direct geruisloos door
                 pass
                 
             current_id += gid_chunk_size

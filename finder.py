@@ -99,26 +99,34 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
 
     # Start de nep-server voor Render
+    print("[ SYSTEM ] Starten van de Keep-Alive server...")
     start_background_server()
 
-    # Zorg dat er automatisch een proxy-bestand wordt aangemaakt als die er niet is
-    if not os.path.exists('proxies.txt'):
-        get_content_from_sources()
+    # Zorg dat er automatisch een proxy-bestand wordt aangemaakt
+    print("[ SYSTEM ] Proxies ophalen...")
+    get_content_from_sources()
 
     # Instellingen voor Render (laag geheugenverbruik)
     sys.argv = [
         sys.argv[0], 
         "--workers", "1",      
-        "--threads", "4",      
+        "--threads", "2",  # Iets verlaagd naar 2 voor extra stabiliteit op Render
         "--proxy-file", "proxies.txt",
-        "--chunk-size", "50"   
+        "--chunk-size", "25" # Kleinere chunks om proxy-fouten te voorkomen  
     ]
 
     args = parse_args()
+    print(f"[ SYSTEM ] Scanner starten met instellingen: {args}")
+    
     try:
-        Controller(args)
-        # Zorg dat het hoofdproces niet stopt na het opstarten van de controller
+        # Start de controller (dit start de threads)
+        controller_instance = Controller(args)
+        print("[ SYSTEM ] Controller is actief. Scanner hoort nu te lopen.")
+        
+        # In plaats van een lege 'while True', printen we elke 30 seconden een heartbeat
         while True:
-            time.sleep(1)
+            time.sleep(30)
+            print("[ HEARTBEAT ] De hoofd-app leeft nog...")
+            
     except KeyboardInterrupt:
-        pass
+        print("[ SYSTEM ] Script handmatig gestopt.")

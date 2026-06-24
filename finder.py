@@ -72,7 +72,28 @@ def get_content_from_sources():
 
     print(f"[+] {len(proxies)} proxies opgeslagen in proxies.txt")
     return proxies
+def run_fake_server():
+    """Start een mini-webserver zodat Render denkt dat dit een website is en online blijft."""
+    from flask import Flask
+    import logging
+    
+    app = Flask(__name__)
+    # Schakel irritante logberichten uit
+    log = logging.getLogger('wsgi')
+    log.setLevel(logging.ERROR)
 
+    @app.route('/')
+    def home():
+        return "Finder is running!", 200
+
+    # Render geeft automatisch een 'PORT' mee aan de server via omgevingsvariabelen
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+def start_background_server():
+    import threading
+    t = threading.Thread(target=run_fake_server, daemon=True)
+    t.start()
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()

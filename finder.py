@@ -77,13 +77,21 @@ def get_content_from_sources():
 if __name__ == "__main__":
     multiprocessing.freeze_support()
 
-    # Auto-inject -p proxies.txt als er geen proxy file is meegegeven
-    if '-p' not in sys.argv and '--proxy-file' not in sys.argv:
+    # Zorg dat er automatisch een proxy-bestand wordt aangemaakt als die er niet is
+    if not os.path.exists('proxies.txt'):
         get_content_from_sources()
-        sys.argv.extend(['-p', 'proxies.txt'])
 
-    controller = Controller(arguments=parse_args())
+    # Hier passen we de instellingen aan voor Render (laag geheugenverbruik)
+    sys.argv = [
+        sys.argv[0], 
+        "--workers", "1",      # Maximaal 1 proces (bespaart enorm veel RAM)
+        "--threads", "4",      # 4 lichte threads binnen dat proces
+        "--proxy-file", "proxies.txt",
+        "--chunk-size", "50"   # Kleinere batches sturen per keer
+    ]
+
+    args = parse_args()
     try:
-        controller.join_workers()
+        Controller(args)
     except KeyboardInterrupt:
         pass
